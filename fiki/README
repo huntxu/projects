@@ -1,0 +1,15 @@
+Fi-ki, is a program used to type with a DDR pad, or of course, though less
+exciting, with a joystick.
+
+Fi-ki, stands for the combination of "feet" & "keyboard". It works in the 
+way listening joystick events and generating keyboard events accordingly.
+
+Install Fi-Ki with the following steps(in the source code directory):
+    1. gcc fiki.c -o ./fiki
+    2. chown root:root ./fiki
+    3. chmod a+s ./fiki
+    4. start with: ./fiki -j JOYSTICK_DEVICE -k KEYBOARD_DEVICE
+    5. end with: ./fiki -K
+
+Author: Hunt Xu
+Email: mhuntxu AT gmail dot com

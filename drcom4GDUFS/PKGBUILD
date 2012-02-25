@@ -1,0 +1,30 @@
+#Contributor: huntxu <mhuntxu@gmail.com>
+
+pkgname=drcom4GDUFS
+pkgver=20091114
+pkgrel=1
+pkgdesc="drcom authentication(with 802.1x) for GDUFS school network"
+arch=('i686' 'x86_64')
+license=('GPL2')
+depends=('libpcap')
+
+_gitroot="git://github.com/huntxu/drcom4GDUFS.git"
+_gitname="drcom"
+
+build() {
+  cd $srcdir
+
+  msg "Connecting to GIT server..."
+  if [[ -d $_gitname ]]; then
+    (cd $_gitname && git pull origin)
+  else
+    git clone $_gitroot $_gitname
+  fi
+  msg "GIT checkout done or server timeout"
+  msg "Starting make..."
+
+  cd ${_gitname}
+  ./autogen.sh --prefix=/usr || return 1
+  make || return 1
+  make DESTDIR=${pkgdir} install || return 1
+}

@@ -1,0 +1,218 @@
+diff -Nur awesome-3.4.10.orig/awesome.c awesome-3.4.10/awesome.c
+--- awesome-3.4.10.orig/awesome.c	2011-05-16 22:35:17.000000000 +0800
++++ awesome-3.4.10/awesome.c	2011-07-31 21:03:31.600451201 +0800
+@@ -52,6 +52,7 @@
+ #include "common/backtrace.h"
+ 
+ awesome_t globalconf;
++Display *awe_dpy;
+ 
+ typedef struct
+ {
+@@ -88,7 +89,7 @@
+     xcb_flush(globalconf.connection);
+ 
+     /* Disconnect *after* closing lua */
+-    xcb_disconnect(globalconf.connection);
++    XCloseDisplay(awe_dpy);
+ 
+     ev_default_destroy();
+ }
+@@ -389,7 +390,9 @@
+     sigaction(SIGSEGV, &sa, 0);
+ 
+     /* X stuff */
+-    globalconf.connection = xcb_connect(NULL, &globalconf.default_screen);
++    awe_dpy = XOpenDisplay(NULL);
++    globalconf.connection = XGetXCBConnection(awe_dpy);
++    globalconf.default_screen = DefaultScreen(awe_dpy);
+     if(xcb_connection_has_error(globalconf.connection))
+         fatal("cannot open display");
+ 
+diff -Nur awesome-3.4.10.orig/awesomeConfig.cmake awesome-3.4.10/awesomeConfig.cmake
+--- awesome-3.4.10.orig/awesomeConfig.cmake	2011-05-16 22:35:17.000000000 +0800
++++ awesome-3.4.10/awesomeConfig.cmake	2011-07-31 21:05:16.679459692 +0800
+@@ -133,6 +133,7 @@
+     glib-2.0
+     cairo
+     x11
++    X11-xcb
+     pango>=1.19.3
+     pangocairo>=1.19.3
+     xcb-randr
+diff -Nur awesome-3.4.10.orig/common/xcursor.c awesome-3.4.10/common/xcursor.c
+--- awesome-3.4.10.orig/common/xcursor.c	2011-05-16 22:35:17.000000000 +0800
++++ awesome-3.4.10/common/xcursor.c	2011-07-31 21:03:31.600451201 +0800
+@@ -149,17 +149,27 @@
+         xcb_open_font(conn, font, sizeof(CURSORFONT) - 1, CURSORFONT);
+     }
+ 
+-    if(!xcursor[cursor_font])
++   if(!xcursor[cursor_font])
+     {
+         xcursor[cursor_font] = xcb_generate_id(conn);
+         xcb_create_glyph_cursor(conn, xcursor[cursor_font], font, font,
+-                                cursor_font, cursor_font + 1,
+-                                0, 0, 0,
++                               cursor_font, cursor_font + 1,
++                              0, 0, 0,
+                                 65535, 65535, 65535);
+     }
+ 
+     return xcursor[cursor_font];
+ }
+ 
++Cursor new_xcursor_new(Display *dpy, uint16_t cursor_font)
++{
++    static Cursor nxcursor[countof(xcursor_font)];
++    if (!nxcursor[cursor_font]) {
++        nxcursor[cursor_font] = XCreateFontCursor(dpy, cursor_font);
++    }
++    return nxcursor[cursor_font];
++}
++
++
+ 
+ // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:encoding=utf-8:textwidth=80
+diff -Nur awesome-3.4.10.orig/common/xcursor.h awesome-3.4.10/common/xcursor.h
+--- awesome-3.4.10.orig/common/xcursor.h	2011-05-16 22:35:17.000000000 +0800
++++ awesome-3.4.10/common/xcursor.h	2011-07-31 21:03:31.601451196 +0800
+@@ -23,11 +23,15 @@
+ #define AWESOME_COMMON_XCURSORS_H
+ 
+ #include <X11/cursorfont.h>
++#include <X11/Xlib.h>
++#include <X11/Xlib-xcb.h>
+ #include <xcb/xcb.h>
+ 
++extern Display *awe_dpy;
+ uint16_t xcursor_font_fromstr(const char *);
+ const char * xcursor_font_tostr(uint16_t);
+ xcb_cursor_t xcursor_new(xcb_connection_t *, uint16_t);
++Cursor new_xcursor_new(Display *, uint16_t);
+ 
+ #endif
+ // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:encoding=utf-8:textwidth=80
+diff -Nur awesome-3.4.10.orig/root.c awesome-3.4.10/root.c
+--- awesome-3.4.10.orig/root.c	2011-05-16 22:35:17.000000000 +0800
++++ awesome-3.4.10/root.c	2011-07-31 21:03:31.601451196 +0800
+@@ -202,15 +202,7 @@
+ 
+     if(cursor_font)
+     {
+-        uint32_t change_win_vals[] = { xcursor_new(globalconf.connection, cursor_font) };
+-
+-        for(int screen_nbr = 0;
+-            screen_nbr < xcb_setup_roots_length(xcb_get_setup(globalconf.connection));
+-            screen_nbr++)
+-            xcb_change_window_attributes(globalconf.connection,
+-                                         xutil_screen_get(globalconf.connection, screen_nbr)->root,
+-                                         XCB_CW_CURSOR,
+-                                         change_win_vals);
++        XDefineCursor(awe_dpy, DefaultRootWindow(awe_dpy), new_xcursor_new(awe_dpy, cursor_font));
+     }
+     else
+         luaA_warn(L, "invalid cursor %s", cursor_name);
+diff -Nur awesome-3.4.10.orig/wibox.c awesome-3.4.10/wibox.c
+--- awesome-3.4.10.orig/wibox.c	2011-05-16 22:35:17.000000000 +0800
++++ awesome-3.4.10/wibox.c	2011-07-31 21:03:31.602451189 +0800
+@@ -798,9 +798,6 @@
+ 
+     wibox_init(wibox, phys_screen);
+ 
+-    window_set_cursor(wibox->window,
+-                      xcursor_new(globalconf.connection, xcursor_font_fromstr(wibox->cursor)));
+-
+     if(wibox->opacity != -1)
+         window_opacity_set(wibox->window, wibox->opacity);
+ 
+@@ -847,9 +844,6 @@
+     if(!w->opacity)
+         w->opacity = -1;
+ 
+-    if(!w->cursor)
+-        w->cursor = a_strdup("left_ptr");
+-
+     if(!w->geometry.width)
+         w->geometry.width = 1;
+ 
+@@ -968,7 +962,6 @@
+ }
+ 
+ LUA_OBJECT_EXPORT_PROPERTY(wibox, wibox_t, ontop, lua_pushboolean)
+-LUA_OBJECT_EXPORT_PROPERTY(wibox, wibox_t, cursor, lua_pushstring)
+ LUA_OBJECT_EXPORT_PROPERTY(wibox, wibox_t, visible, lua_pushboolean)
+ LUA_OBJECT_EXPORT_PROPERTY(wibox, wibox_t, border_width, lua_pushnumber)
+ LUA_OBJECT_EXPORT_PROPERTY(wibox, wibox_t, border_color, luaA_pushxcolor)
+@@ -1302,30 +1295,6 @@
+     return luaA_object_push(L, client_getbytitlebar(wibox));
+ }
+ 
+-/** Set the wibox cursor.
+- * \param L The Lua VM state.
+- * \param wibox The wibox object.
+- * \return The number of elements pushed on stack.
+- */
+-static int
+-luaA_wibox_set_cursor(lua_State *L, wibox_t *wibox)
+-{
+-    const char *buf = luaL_checkstring(L, -1);
+-    if(buf)
+-    {
+-        uint16_t cursor_font = xcursor_font_fromstr(buf);
+-        if(cursor_font)
+-        {
+-            xcb_cursor_t cursor = xcursor_new(globalconf.connection, cursor_font);
+-            p_delete(&wibox->cursor);
+-            wibox->cursor = a_strdup(buf);
+-            window_set_cursor(wibox->window, cursor);
+-            luaA_object_emit_signal(L, -3, "property::cursor", 0);
+-        }
+-    }
+-    return 0;
+-}
+-
+ /** Set the wibox screen.
+  * \param L The Lua VM state.
+  * \param wibox The wibox object.
+@@ -1603,10 +1572,6 @@
+                             NULL,
+                             (lua_class_propfunc_t) luaA_wibox_get_screen,
+                             (lua_class_propfunc_t) luaA_wibox_set_screen);
+-    luaA_class_add_property(&wibox_class, A_TK_CURSOR,
+-                            (lua_class_propfunc_t) luaA_wibox_set_cursor,
+-                            (lua_class_propfunc_t) luaA_wibox_get_cursor,
+-                            (lua_class_propfunc_t) luaA_wibox_set_cursor);
+     luaA_class_add_property(&wibox_class, A_TK_CLIENT,
+                             (lua_class_propfunc_t) luaA_wibox_set_client,
+                             (lua_class_propfunc_t) luaA_wibox_get_client,
+diff -Nur awesome-3.4.10.orig/window.c awesome-3.4.10/window.c
+--- awesome-3.4.10.orig/window.c	2011-05-16 22:35:17.000000000 +0800
++++ awesome-3.4.10/window.c	2011-07-31 21:03:31.602451189 +0800
+@@ -215,15 +215,4 @@
+                    XCB_EVENT_MASK_NO_EVENT, (char *) &ev);
+ }
+ 
+-/** Set wibox cursor.
+- * \param w The wibox.
+- * \param c The cursor.
+- */
+-void
+-window_set_cursor(xcb_window_t w, xcb_cursor_t c)
+-{
+-    xcb_change_window_attributes(globalconf.connection, w, XCB_CW_CURSOR,
+-                                 (const uint32_t[]) { c });
+-}
+-
+ // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:encoding=utf-8:textwidth=80
+diff -Nur awesome-3.4.10.orig/window.h awesome-3.4.10/window.h
+--- awesome-3.4.10.orig/window.h	2011-05-16 22:35:17.000000000 +0800
++++ awesome-3.4.10/window.h	2011-07-31 21:03:31.602451189 +0800
+@@ -36,7 +36,6 @@
+ void window_grabbuttons(xcb_window_t, xcb_window_t, button_array_t *);
+ void window_grabkeys(xcb_window_t, key_array_t *);
+ void window_takefocus(xcb_window_t);
+-void window_set_cursor(xcb_window_t, xcb_cursor_t);
+ 
+ #endif
+ // vim: filetype=c:expandtab:shiftwidth=4:tabstop=8:softtabstop=4:encoding=utf-8:textwidth=80
